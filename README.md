@@ -25,7 +25,8 @@ Some planned or suggested improvements to the baseline approach:
 - **(Add more improvements here)**  
 - Model ensembling  
 - Better threshold selection  
-- Ontology-aware loss functions  
+- Ontology-aware loss functions
+- Add MSA infor
 
 
 ---

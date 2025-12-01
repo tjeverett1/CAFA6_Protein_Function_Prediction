@@ -111,7 +111,7 @@ class ProteinTrainer:
         
         # Scheduler: Reduce LR if Val Loss stops improving
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', factor=0.1, patience=3, verbose=True
+            self.optimizer, mode='min', factor=0.1, patience=3
         )
 
         # Tracking

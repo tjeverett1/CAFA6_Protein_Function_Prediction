@@ -6,30 +6,40 @@ import os
 
 
 emb_dir = "data/train_embeddings"
-# Only run this ID generation if the file doesn't exist or we explicitly want to refresh
-if not os.path.exists("data/train_ids.npy"):
-    ids = [f.replace(".npz","") for f in os.listdir(emb_dir) if f.endswith(".npz")]
-    ids = np.array(sorted(ids))
-    np.save("data/train_ids.npy", ids)
+
+def extract_accession(filename):
+    # Input: sp_A0A023FBW4_E1142_AMBCJ.npz
+    name = filename.replace(".npz", "")
+    parts = name.split("_")
+    # Robust extraction: typically index 1
+    if len(parts) >= 2:
+        return parts[1]
+    return name 
+
+# Always regenerate to ensure consistency
+files = [f for f in os.listdir(emb_dir) if f.endswith(".npz")]
+files.sort() # Deterministic order
+
+# 1. Save filenames (for loading X)
+np.save("data/train_filenames.npy", np.array(files))
+
+# 2. Save clean IDs (for matching Y)
+clean_ids = [extract_accession(f) for f in files]
+np.save("data/train_ids.npy", np.array(clean_ids))
+
+print(f"✅ Regenerated IDs. Found {len(files)} embeddings.")
+print(f"Sample Filename: {files[0]}")
+print(f"Sample ID: {clean_ids[0]}")
+
 
 # ============================================================
 # ======================= CONFIG ==============================
 # ============================================================
 CONFIG = {
-    # Path to train_terms.tsv (EntryID ↦ GO term)
     "train_terms_path": "data/train_terms.tsv",
-
-    # Your list of proteins corresponding to embeddings
-    # (this should be the same ordering as your embeddings)
-    "train_ids_path": "data/train_ids.npy",
-
-    # GO ontology
+    "train_ids_path": "data/train_ids.npy", # Use clean IDs for label matching
     "obo_path": "data/go-basic.obo",
-
-    # How many GO terms to use (top-N)
     "N_labels": 1024,
-
-    # Output file names
     "output_labels": "data/labels_top1024.npy",
     "output_targets": "data/train_targets_top1024.npy",
 }

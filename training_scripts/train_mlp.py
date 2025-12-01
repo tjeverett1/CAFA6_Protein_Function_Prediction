@@ -12,29 +12,41 @@ from IPython.display import clear_output
 # 1. DATASET
 # ==========================================
 class ProteinEmbeddingDataset(Dataset):
-    def __init__(self, ids_path, labels_path, emb_dir, input_dim):
+    def __init__(self, ids_path, filenames_path, labels_path, emb_dir, input_dim):
+        # IDs: ['P12345', 'Q99999'] (Clean IDs for reference/debugging)
         self.ids = np.load(ids_path)
+        
+        # Filenames: ['sp_P12345_GENE.npz', ...] (Actual files on disk)
+        self.filenames = np.load(filenames_path)
+        
+        # Labels: (N, 1024) matrix
         self.labels = np.load(labels_path)
+        
         self.emb_dir = emb_dir
         self.input_dim = input_dim
         
-        assert len(self.ids) == len(self.labels), "IDs and Labels count mismatch!"
+        # Sanity checks
+        assert len(self.ids) == len(self.labels), f"IDs ({len(self.ids)}) and Labels ({len(self.labels)}) mismatch!"
+        assert len(self.ids) == len(self.filenames), f"IDs ({len(self.ids)}) and Filenames ({len(self.filenames)}) mismatch!"
 
     def __len__(self):
         return len(self.ids)
 
     def __getitem__(self, idx):
-        pid = self.ids[idx]
-        emb_path = os.path.join(self.emb_dir, f"{pid}.npz")
+        # Load X using the actual filename
+        fname = self.filenames[idx]
+        emb_path = os.path.join(self.emb_dir, fname)
         
         try:
             data = np.load(emb_path)
             embedding = data['embedding']
         except Exception as e:
-            # print(f"Error loading {pid}: {e}") # Silence for speed in loops
+            # print(f"Error loading {fname}: {e}")
             embedding = np.zeros(self.input_dim)
 
+        # Load Y
         label = self.labels[idx]
+        
         return torch.tensor(embedding, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
 
 # ==========================================
@@ -69,10 +81,9 @@ class ProteinFunctionMLP(nn.Module):
 # ==========================================
 class ProteinTrainer:
     def __init__(self, config):
-        """
-        config: dict with keys like 'hidden_dim', 'learning_rate', 'batch_size', etc.
-        """
         self.config = config
+        
+        # Smart Device Selection
         self.device = config.get("device")
         if self.device is None:
              if torch.cuda.is_available():
@@ -82,9 +93,19 @@ class ProteinTrainer:
              else:
                  self.device = "cpu"
         
+        print(f"🔧 Using device: {self.device}")
+
         # Prepare Data
+        # Note: 'ids_path' now assumes we also have a 'train_filenames.npy' in the same dir
+        # or explicitly passed in config. We'll infer it if missing.
+        filenames_path = config.get('filenames_path')
+        if not filenames_path:
+            # Fallback: assume it's next to ids_path
+            filenames_path = config['ids_path'].replace("train_ids.npy", "train_filenames.npy")
+
         self.full_dataset = ProteinEmbeddingDataset(
-            config['ids_path'], 
+            config['ids_path'],
+            filenames_path,
             config['labels_path'], 
             config['embedding_dir'],
             config['input_dim']
@@ -109,7 +130,7 @@ class ProteinTrainer:
         self.criterion = nn.BCEWithLogitsLoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=config['learning_rate'])
         
-        # Scheduler: Reduce LR if Val Loss stops improving
+        # Scheduler (verbose removed for compatibility)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, mode='min', factor=0.1, patience=3
         )
@@ -151,16 +172,19 @@ class ProteinTrainer:
 
     def plot_live(self):
         """Updates the plot in the Notebook output."""
-        clear_output(wait=True)
-        plt.figure(figsize=(10, 5))
-        plt.plot(self.history['train_loss'], label='Train Loss', marker='o')
-        plt.plot(self.history['val_loss'], label='Val Loss', marker='x')
-        plt.title(f"Training Progress (LR: {self.optimizer.param_groups[0]['lr']:.1e})")
-        plt.xlabel("Epoch")
-        plt.ylabel("BCE Loss")
-        plt.legend()
-        plt.grid(True)
-        plt.show()
+        try:
+            clear_output(wait=True)
+            plt.figure(figsize=(10, 5))
+            plt.plot(self.history['train_loss'], label='Train Loss', marker='o')
+            plt.plot(self.history['val_loss'], label='Val Loss', marker='x')
+            plt.title(f"Training Progress (LR: {self.optimizer.param_groups[0]['lr']:.1e})")
+            plt.xlabel("Epoch")
+            plt.ylabel("BCE Loss")
+            plt.legend()
+            plt.grid(True)
+            plt.show()
+        except:
+            pass # Fail gracefully if no GUI
 
     def run(self):
         print(f"🚀 Starting Run | Hidden: {self.config['hidden_dim']} | LR: {self.config['learning_rate']}")
@@ -182,7 +206,6 @@ class ProteinTrainer:
                 self.best_val_loss = v_loss
                 save_path = f"best_model_h{self.config['hidden_dim']}_lr{self.config['learning_rate']}.pth"
                 torch.save(self.model.state_dict(), save_path)
-                # print(f"⭐ New Best Val Loss: {v_loss:.4f} -> Saved {save_path}")
 
             # Live Plot
             self.plot_live()
@@ -195,10 +218,10 @@ class ProteinTrainer:
 # 4. MAIN EXECUTION (Local Test)
 # ==========================================
 if __name__ == "__main__":
-    # Example usage for testing locally
     local_config = {
         "embedding_dir": "data/train_embeddings", 
         "ids_path": "data/train_ids.npy",
+        # "filenames_path": "data/train_filenames.npy", # Auto-inferred
         "labels_path": "data/train_targets_top1024.npy",
         "input_dim": 1280,
         "num_classes": 1024,
@@ -206,7 +229,7 @@ if __name__ == "__main__":
         "batch_size": 64,
         "learning_rate": 1e-3,
         "epochs": 5,
-        "device": "cpu" # Force CPU for quick local test
+        # "device": "cpu" # Let auto-detect handle it
     }
     # trainer = ProteinTrainer(local_config)
     # trainer.run()

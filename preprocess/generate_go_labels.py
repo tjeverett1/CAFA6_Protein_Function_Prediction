@@ -5,32 +5,33 @@ from tqdm import tqdm
 import os
 
 
-emb_dir = r"cafa-6-protein-function-prediction/train_embeddings"
-ids = [f.replace(".npz","") for f in os.listdir(emb_dir) if f.endswith(".npz")]
-ids = np.array(sorted(ids))   # optional, but consistent
-
-np.save("cafa-6-protein-function-prediction/Train/train_ids.npy", ids)
+emb_dir = "data/train_embeddings"
+# Only run this ID generation if the file doesn't exist or we explicitly want to refresh
+if not os.path.exists("data/train_ids.npy"):
+    ids = [f.replace(".npz","") for f in os.listdir(emb_dir) if f.endswith(".npz")]
+    ids = np.array(sorted(ids))
+    np.save("data/train_ids.npy", ids)
 
 # ============================================================
 # ======================= CONFIG ==============================
 # ============================================================
 CONFIG = {
     # Path to train_terms.tsv (EntryID ↦ GO term)
-    "train_terms_path": "cafa-6-protein-function-prediction/Train/train_terms.tsv",
+    "train_terms_path": "data/train_terms.tsv",
 
     # Your list of proteins corresponding to embeddings
     # (this should be the same ordering as your embeddings)
-    "train_ids_path": "cafa-6-protein-function-prediction/Train/train_ids.npy",
+    "train_ids_path": "data/train_ids.npy",
 
     # GO ontology
-    "obo_path": "cafa-6-protein-function-prediction/Train/go-basic.obo",
+    "obo_path": "data/go-basic.obo",
 
     # How many GO terms to use (top-N)
     "N_labels": 1024,
 
     # Output file names
-    "output_labels": "labels_top1024.npy",
-    "output_targets": "train_targets_top1024.npy",
+    "output_labels": "data/labels_top1024.npy",
+    "output_targets": "data/train_targets_top1024.npy",
 }
 # ============================================================
 

@@ -78,13 +78,9 @@ def load_data():
     if Y.sum() == 0:
         print("❌ WARNING: Target matrix Y is all zeros! Check label parsing.")
     
-    if Y.ndim == 1:
-    
     # Y might be a list of arrays, so we stack them ensuring they are 2D
     # If item['labels'] is already an array, np.array(Y) usually works,
     # but np.stack or np.vstack is safer if they are uniform.
-    Y = np.array(Y, dtype=np.float32)
-    
     if Y.ndim == 1:
         # This happens if Y is an array of objects (arrays), need to stack manually if np.array failed to infer dims
         # or if it's just a single sample (unlikely here)

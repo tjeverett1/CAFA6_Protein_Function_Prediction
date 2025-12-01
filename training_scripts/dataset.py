@@ -85,7 +85,7 @@ class ProteinEnsembleDataset(Dataset):
         tax_idx = self.tax_to_idx.get(tax_raw, 0) 
         
         # 3. Label
-        label = item['label']
+        label = item['labels']
         
         return {
             "features": torch.tensor(combined_features, dtype=torch.float32),

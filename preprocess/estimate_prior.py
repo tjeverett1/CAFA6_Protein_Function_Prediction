@@ -37,7 +37,7 @@ def load_data():
     
     for pid in ids:
         item = data_dict[pid]
-        # Just using ESM embedding (1280) is enough for a rough P vs U separation
+        # Using 'embedding' key (ESM)
         X.append(item['embedding'])
         Y.append(item['label'])
         

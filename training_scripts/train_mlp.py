@@ -73,7 +73,14 @@ class ProteinTrainer:
         config: dict with keys like 'hidden_dim', 'learning_rate', 'batch_size', etc.
         """
         self.config = config
-        self.device = config.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+        self.device = config.get("device")
+        if self.device is None:
+             if torch.cuda.is_available():
+                 self.device = "cuda"
+             elif torch.backends.mps.is_available():
+                 self.device = "mps"
+             else:
+                 self.device = "cpu"
         
         # Prepare Data
         self.full_dataset = ProteinEmbeddingDataset(

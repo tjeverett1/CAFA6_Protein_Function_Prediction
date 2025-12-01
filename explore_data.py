@@ -10,14 +10,15 @@ from esm import pretrained
 # CONFIGURATION
 # ============================================================
 
-FASTA_PATH = r"C:\Users\tessa\MIT Dropbox\Tessa Everett\6.s043\final_project\cafa-6-protein-function-prediction\Train\train_sequences.fasta"          # your input FASTA
-OUT_DIR = r"C:\Users\tessa\MIT Dropbox\Tessa Everett\6.s043\final_project\embeddings\train"                 # where per-protein .npz embeddings go
+FASTA_PATH = r"testsuperset.fasta"          # your input FASTA
+OUT_DIR = r"/orcd/home/002/tjeveret/orcd/pool/embeddings/test"                 # where per-protein .npz embeddings go
 MODEL_NAME = "esm2_t33_650M_UR50D"       # good quality + fits on 4GB GPU
 
 BATCH_BASE = 4                           # base batch size for ~300–600 aa
-MAX_NORMAL_LEN = 2000                    # sequences <= this length processed normally
+MAX_NORMAL_LEN = 5000                    # sequences <= this length processed normally
 CHUNK_SIZE = 1024                        # chunk size for long proteins
-CHUNK_OVERLAP = 128                      # optional overlap for smoother chunking
+CHUNK_OVERLAP = 128     
+TRAIN_EMB_DIR = "/orcd/home/002/tjeveret/orcd/pool/embeddings/train"                 # optional overlap for smoother chunking
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -72,6 +73,27 @@ def save_embedding(pid, prot_emb):
 def already_done(pid):
     return os.path.exists(os.path.join(OUT_DIR, f"{pid}.npz"))
 
+# ============================================================
+# PRELOAD EXISTING EMBEDDINGS
+# ============================================================
+
+def load_existing_ids():
+    existing = set()
+
+    # test embeddings
+    for f in os.listdir(OUT_DIR):
+        if f.endswith(".npz"):
+            existing.add(f[:-4])
+
+    # train embeddings
+    for f in os.listdir(TRAIN_EMB_DIR):
+        if f.endswith(".npz"):
+            existing.add(f[:-4])
+
+    print(f"✔ Found {len(existing)} embeddings already computed.")
+    return existing
+
+
 
 # ============================================================
 # MAIN EMBEDDING FUNCTION
@@ -103,6 +125,8 @@ def embed_fasta_chunked():
     records.sort(key=lambda r: len(r.seq))
     print("✔️ Sequences sorted by length.\n")
 
+    existing_ids = load_existing_ids()
+
     # ---------- Process each record ----------
     for rec in tqdm(records, desc="Embedding proteins"):
 
@@ -111,7 +135,7 @@ def embed_fasta_chunked():
         L = len(seq)
 
         # Resume mode
-        if already_done(pid):
+        if pid in existing_ids:
             continue
 
         # --------------------------

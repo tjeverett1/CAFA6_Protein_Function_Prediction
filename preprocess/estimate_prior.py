@@ -45,9 +45,6 @@ def load_data():
         # Handle sparse dictionary format for labels if necessary
         if isinstance(raw_label, dict):
             # Assuming dict keys are indices of positive labels
-            # We need to know the total number of classes to create the vector
-            # CONFIG['num_classes'] = 1500 based on the error trace (implied) or we use the global CONFIG
-            # Let's create a dense vector
             dense_label = np.zeros(CONFIG["num_classes"], dtype=np.float32)
             for idx in raw_label:
                 if isinstance(idx, int) and 0 <= idx < CONFIG["num_classes"]:
@@ -55,12 +52,33 @@ def load_data():
             Y.append(dense_label)
         elif hasattr(raw_label, "toarray"): # Scipy sparse matrix
              Y.append(raw_label.toarray().flatten())
+        elif isinstance(raw_label, (list, np.ndarray, tuple)):
+            # Check if it's a dense vector or a list of indices
+            raw_label_arr = np.array(raw_label)
+            if raw_label_arr.ndim == 1 and len(raw_label_arr) < CONFIG["num_classes"]:
+                 # Likely a list of indices [1, 5, 100]
+                 dense_label = np.zeros(CONFIG["num_classes"], dtype=np.float32)
+                 for idx in raw_label_arr:
+                     if int(idx) < CONFIG["num_classes"]:
+                         dense_label[int(idx)] = 1.0
+                 Y.append(dense_label)
+            else:
+                 # Assume it's already a dense vector
+                 Y.append(raw_label)
         else:
             # Assume it's already a list/array
             Y.append(raw_label)
           
     # Ensure X and Y are proper 2D arrays
     X = np.array(X, dtype=np.float32)
+    
+    # Debug: Check if we have any positives
+    Y = np.array(Y, dtype=np.float32)
+    print(f"DEBUG: Y shape: {Y.shape}, Y sum: {Y.sum()}")
+    if Y.sum() == 0:
+        print("❌ WARNING: Target matrix Y is all zeros! Check label parsing.")
+    
+    if Y.ndim == 1:
     
     # Y might be a list of arrays, so we stack them ensuring they are 2D
     # If item['labels'] is already an array, np.array(Y) usually works,

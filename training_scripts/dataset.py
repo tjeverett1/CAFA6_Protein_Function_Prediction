@@ -89,17 +89,25 @@ class ProteinEnsembleDataset(Dataset):
         
         # Handle sparse/dict labels
         if isinstance(raw_label, dict):
-            # Hardcoded 1024 or passed in config? Dataset usually doesn't know config N_labels 
-            # unless we pass it. But the pickle usually implies a fixed size.
-            # We'll assume the max index in the dict matches our training setup (1024)
-            # or better, we create a vector of size 1024.
-            label_vec = np.zeros(1024, dtype=np.float32) # TODO: Should be dynamic?
+            label_vec = np.zeros(1024, dtype=np.float32)
             for k in raw_label:
                 if isinstance(k, int) and 0 <= k < 1024:
                     label_vec[k] = 1.0
             label = label_vec
         elif hasattr(raw_label, "toarray"):
             label = raw_label.toarray().flatten()
+        elif isinstance(raw_label, (list, np.ndarray, tuple)):
+             # Check if it's a dense vector or a list of indices
+            raw_label_arr = np.array(raw_label)
+            if raw_label_arr.ndim == 1 and len(raw_label_arr) < 1024:
+                 # Likely a list of indices
+                 label_vec = np.zeros(1024, dtype=np.float32)
+                 for idx in raw_label_arr:
+                     if int(idx) < 1024:
+                         label_vec[int(idx)] = 1.0
+                 label = label_vec
+            else:
+                 label = raw_label
         else:
             label = raw_label
         

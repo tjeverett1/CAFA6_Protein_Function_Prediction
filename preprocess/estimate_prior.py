@@ -41,7 +41,26 @@ def load_data():
         X.append(item['embedding'])
         Y.append(item['labels'])
         
-    return np.array(X), np.array(Y)
+    # Ensure X and Y are proper 2D arrays
+    X = np.array(X, dtype=np.float32)
+    
+    # Y might be a list of arrays, so we stack them ensuring they are 2D
+    # If item['labels'] is already an array, np.array(Y) usually works,
+    # but np.stack or np.vstack is safer if they are uniform.
+    Y = np.array(Y, dtype=np.float32)
+    
+    if Y.ndim == 1:
+        # This happens if Y is an array of objects (arrays), need to stack manually if np.array failed to infer dims
+        # or if it's just a single sample (unlikely here)
+        try:
+            Y = np.vstack(Y)
+        except:
+            print(f"❌ Error stacking Y. Shape before stack: {Y.shape}")
+            # Debug first element
+            print(f"First element type: {type(Y[0])}, shape: {getattr(Y[0], 'shape', 'N/A')}")
+            raise
+
+    return X, Y
 
 def estimate_priors(X, Y_multi):
     """

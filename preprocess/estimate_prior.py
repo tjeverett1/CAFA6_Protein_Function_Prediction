@@ -39,8 +39,26 @@ def load_data():
         item = data_dict[pid]
         # Using 'embedding' key (ESM)
         X.append(item['embedding'])
-        Y.append(item['labels'])
         
+        raw_label = item['labels']
+        
+        # Handle sparse dictionary format for labels if necessary
+        if isinstance(raw_label, dict):
+            # Assuming dict keys are indices of positive labels
+            # We need to know the total number of classes to create the vector
+            # CONFIG['num_classes'] = 1500 based on the error trace (implied) or we use the global CONFIG
+            # Let's create a dense vector
+            dense_label = np.zeros(CONFIG["num_classes"], dtype=np.float32)
+            for idx in raw_label:
+                if isinstance(idx, int) and 0 <= idx < CONFIG["num_classes"]:
+                    dense_label[idx] = 1.0
+            Y.append(dense_label)
+        elif hasattr(raw_label, "toarray"): # Scipy sparse matrix
+             Y.append(raw_label.toarray().flatten())
+        else:
+            # Assume it's already a list/array
+            Y.append(raw_label)
+          
     # Ensure X and Y are proper 2D arrays
     X = np.array(X, dtype=np.float32)
     

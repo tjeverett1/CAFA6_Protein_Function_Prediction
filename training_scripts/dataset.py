@@ -85,7 +85,23 @@ class ProteinEnsembleDataset(Dataset):
         tax_idx = self.tax_to_idx.get(tax_raw, 0) 
         
         # 3. Label
-        label = item['labels']
+        raw_label = item['labels']
+        
+        # Handle sparse/dict labels
+        if isinstance(raw_label, dict):
+            # Hardcoded 1024 or passed in config? Dataset usually doesn't know config N_labels 
+            # unless we pass it. But the pickle usually implies a fixed size.
+            # We'll assume the max index in the dict matches our training setup (1024)
+            # or better, we create a vector of size 1024.
+            label_vec = np.zeros(1024, dtype=np.float32) # TODO: Should be dynamic?
+            for k in raw_label:
+                if isinstance(k, int) and 0 <= k < 1024:
+                    label_vec[k] = 1.0
+            label = label_vec
+        elif hasattr(raw_label, "toarray"):
+            label = raw_label.toarray().flatten()
+        else:
+            label = raw_label
         
         return {
             "features": torch.tensor(combined_features, dtype=torch.float32),

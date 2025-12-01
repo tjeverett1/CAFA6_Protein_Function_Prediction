@@ -207,7 +207,7 @@ class ProteinTrainer:
         
         for batch in pbar:
             features = batch['features'].to(self.device)
-            tax_idx = batch['taxonomy_idx'].to(self.device)
+            tax_idx = batch['taxonomy'].to(self.device)
             targets = batch['label'].to(self.device)
             
             self.optimizer.zero_grad()

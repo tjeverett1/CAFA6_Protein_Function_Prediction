@@ -61,13 +61,16 @@ class ProteinEnsembleDataset(Dataset):
         item = self.data_dict[pid]
         
         # 1. Features
-        esm = item['esm_embedding']
+        # ESM from main dict (key is 'embedding')
+        esm = item['embedding']
         
-        # Retrieve T5 from the separate dictionary
-        t5 = self.t5_dict.get(pid)
+        # T5 from separate dict (key is also 'embedding')
+        # We access the item for this PID from the T5 dict
+        t5_item = self.t5_dict.get(pid)
         
-        # Safety check if T5 is missing for some reason (shouldn't happen if keys align)
-        if t5 is None:
+        if t5_item is not None:
+             t5 = t5_item['embedding']
+        else:
             # Fallback: zero vector of size 1024 (T5 standard)
             t5 = np.zeros(1024, dtype=np.float32)
         

@@ -67,12 +67,13 @@ class ProteinTrainer:
 
         # --- Data Loading ---
         pickle_path = config['pickle_path']
+        t5_pickle_path = config['t5_pickle_path']
         val_fold = config.get('val_fold', 0)
         
         # Initialize Datasets
         print("📦 Initializing Datasets...")
-        self.train_dataset = ProteinEnsembleDataset(pickle_path, mode='train', val_fold=val_fold)
-        self.val_dataset = ProteinEnsembleDataset(pickle_path, mode='val', val_fold=val_fold)
+        self.train_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, mode='train', val_fold=val_fold)
+        self.val_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, mode='val', val_fold=val_fold)
         
         self.train_loader = DataLoader(self.train_dataset, batch_size=config['batch_size'], shuffle=True, num_workers=0)
         self.val_loader = DataLoader(self.val_dataset, batch_size=config['batch_size'], shuffle=False, num_workers=0)
@@ -184,6 +185,7 @@ if __name__ == "__main__":
     # You must upload 'protein_data.pkl' to data/ before running this
     config = {
         "pickle_path": "data/protein_data.pkl",
+        "t5_pickle_path": "data/t5_data.pkl",
         "feature_dim": 2304,    # 1280 (ESM) + 1024 (T5)
         "num_classes": 1024,
         "hidden_dim": 512,

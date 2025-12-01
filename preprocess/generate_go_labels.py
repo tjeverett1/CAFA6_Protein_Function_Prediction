@@ -39,7 +39,7 @@ CONFIG = {
     "train_terms_path": "data/train_terms.tsv",
     "train_ids_path": "data/train_ids.npy", # Use clean IDs for label matching
     "obo_path": "data/go-basic.obo",
-    "N_labels": 1024,
+    "N_labels": 2048,
     "output_labels": "data/labels_top1024.npy",
     "output_targets": "data/train_targets_top1024.npy",
 }

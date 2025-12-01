@@ -35,12 +35,17 @@ def load_data():
     X = []
     Y = []
     
-    for pid in ids:
+    for i, pid in enumerate(ids):
         item = data_dict[pid]
         # Using 'embedding' key (ESM)
         X.append(item['embedding'])
         
         raw_label = item['labels']
+        
+        # DEBUG: Print first label structure to debug "all zeros" issue
+        if i == 0:
+            print(f"\n🔍 DEBUG: First raw_label type: {type(raw_label)}")
+            print(f"🔍 DEBUG: First raw_label content: {raw_label}")
         
         # Handle sparse dictionary format for labels if necessary
         if isinstance(raw_label, dict):

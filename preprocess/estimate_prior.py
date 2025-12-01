@@ -39,7 +39,7 @@ def load_data():
         item = data_dict[pid]
         # Using 'embedding' key (ESM)
         X.append(item['embedding'])
-        Y.append(item['label'])
+        Y.append(item['labels'])
         
     return np.array(X), np.array(Y)
 

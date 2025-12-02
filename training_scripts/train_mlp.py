@@ -160,11 +160,12 @@ class ProteinTrainer:
         pickle_path = config['pickle_path']
         t5_pickle_path = config['t5_pickle_path']
         prior_path = config.get('prior_path', 'data/class_priors.npy') # Path to priors
+        vocab_path = config.get('vocab_path', 'data/labels_top1024.npy')
         val_fold = config.get('val_fold', 0)
         
         print("📦 Initializing Datasets...")
-        self.train_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, mode='train', val_fold=val_fold)
-        self.val_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, mode='val', val_fold=val_fold)
+        self.train_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, vocab_path, mode='train', val_fold=val_fold)
+        self.val_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, vocab_path, mode='val', val_fold=val_fold)
         
         self.train_loader = DataLoader(self.train_dataset, batch_size=config['batch_size'], shuffle=True, num_workers=4, pin_memory=True)
         self.val_loader = DataLoader(self.val_dataset, batch_size=config['batch_size'], shuffle=False, num_workers=4, pin_memory=True)

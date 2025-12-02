@@ -12,19 +12,27 @@ CONFIG = {
     "pickle_path": "data/protein_data.pkl",
     "t5_pickle_path": "data/t5_data.pkl",
     "output_prior_path": "data/class_priors.npy",
+    "vocab_path": "data/labels_top1024.npy", # Added vocab path
     "num_classes": 1024,
-    "subsample_size": 10000 # Downsample for speed during prior estimation if needed
+    "subsample_size": 10000 
 }
 
 def load_data():
     print(f"📦 Loading data for prior estimation...")
+    
+    # Load Vocabulary if available
+    term_to_idx = {}
+    if os.path.exists(CONFIG["vocab_path"]):
+        vocab = np.load(CONFIG["vocab_path"])
+        term_to_idx = {term: i for i, term in enumerate(vocab)}
+        print(f"📖 Loaded vocabulary with {len(term_to_idx)} terms")
+    else:
+        print("⚠️ Warning: No vocabulary found at data/labels_top1024.npy. Assuming labels are already indices.")
+
     with open(CONFIG["pickle_path"], "rb") as f:
         data_dict = pickle.load(f)
     
     # We need features (X) and labels (Y)
-    # For prior estimation, a subset of features (e.g. just ESM) is usually sufficient and faster
-    # to distinguish P vs U distributions.
-    
     ids = list(data_dict.keys())
     
     # Optional: Subsample for speed
@@ -37,42 +45,43 @@ def load_data():
     
     for i, pid in enumerate(ids):
         item = data_dict[pid]
-        # Using 'embedding' key (ESM)
         X.append(item['embedding'])
         
         raw_label = item['labels']
         
-        # DEBUG: Print first label structure to debug "all zeros" issue
+        # DEBUG: Print first label structure
         if i == 0:
             print(f"\n🔍 DEBUG: First raw_label type: {type(raw_label)}")
             print(f"🔍 DEBUG: First raw_label content: {raw_label}")
         
-        # Handle sparse dictionary format for labels if necessary
+        dense_label = np.zeros(CONFIG["num_classes"], dtype=np.float32)
+
+        # Helper to process a single label item (int or string)
+        def process_label_item(lbl, d_label):
+            if isinstance(lbl, int):
+                if 0 <= lbl < CONFIG["num_classes"]:
+                    d_label[lbl] = 1.0
+            elif isinstance(lbl, str):
+                if lbl in term_to_idx:
+                    d_label[term_to_idx[lbl]] = 1.0
+
+        # Handle various formats
         if isinstance(raw_label, dict):
-            # Assuming dict keys are indices of positive labels
-            dense_label = np.zeros(CONFIG["num_classes"], dtype=np.float32)
-            for idx in raw_label:
-                if isinstance(idx, int) and 0 <= idx < CONFIG["num_classes"]:
-                    dense_label[idx] = 1.0
-            Y.append(dense_label)
+            for key in raw_label:
+                process_label_item(key, dense_label)
         elif hasattr(raw_label, "toarray"): # Scipy sparse matrix
-             Y.append(raw_label.toarray().flatten())
+             dense_label = raw_label.toarray().flatten()[:CONFIG["num_classes"]]
         elif isinstance(raw_label, (list, np.ndarray, tuple)):
-            # Check if it's a dense vector or a list of indices
             raw_label_arr = np.array(raw_label)
-            if raw_label_arr.ndim == 1 and len(raw_label_arr) < CONFIG["num_classes"]:
-                 # Likely a list of indices [1, 5, 100]
-                 dense_label = np.zeros(CONFIG["num_classes"], dtype=np.float32)
-                 for idx in raw_label_arr:
-                     if int(idx) < CONFIG["num_classes"]:
-                         dense_label[int(idx)] = 1.0
-                 Y.append(dense_label)
+            if np.issubdtype(raw_label_arr.dtype, np.number) and raw_label_arr.shape == (CONFIG["num_classes"],):
+                 dense_label = raw_label_arr
             else:
-                 # Assume it's already a dense vector
-                 Y.append(raw_label)
+                 for val in raw_label:
+                     process_label_item(val, dense_label)
         else:
-            # Assume it's already a list/array
-            Y.append(raw_label)
+            process_label_item(raw_label, dense_label)
+            
+        Y.append(dense_label)
           
     # Ensure X and Y are proper 2D arrays
     X = np.array(X, dtype=np.float32)
@@ -80,21 +89,18 @@ def load_data():
     # Debug: Check if we have any positives
     Y = np.array(Y, dtype=np.float32)
     print(f"DEBUG: Y shape: {Y.shape}, Y sum: {Y.sum()}")
-    if Y.sum() == 0:
-        print("❌ WARNING: Target matrix Y is all zeros! Check label parsing.")
     
+    if Y.sum() == 0:
+        print("❌ WARNING: Target matrix Y is still all zeros!")
+        if len(ids) > 0:
+             print(f"Sample raw label: {data_dict[ids[0]]['labels']}")
+
     # Y might be a list of arrays, so we stack them ensuring they are 2D
-    # If item['labels'] is already an array, np.array(Y) usually works,
-    # but np.stack or np.vstack is safer if they are uniform.
     if Y.ndim == 1:
-        # This happens if Y is an array of objects (arrays), need to stack manually if np.array failed to infer dims
-        # or if it's just a single sample (unlikely here)
         try:
             Y = np.vstack(Y)
         except:
             print(f"❌ Error stacking Y. Shape before stack: {Y.shape}")
-            # Debug first element
-            print(f"First element type: {type(Y[0])}, shape: {getattr(Y[0], 'shape', 'N/A')}")
             raise
 
     return X, Y

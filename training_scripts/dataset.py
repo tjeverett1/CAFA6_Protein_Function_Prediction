@@ -5,11 +5,12 @@ import pickle
 import os
 
 class ProteinEnsembleDataset(Dataset):
-    def __init__(self, pickle_path, t5_pickle_path, mode='train', val_fold=0):
+    def __init__(self, pickle_path, t5_pickle_path, vocab_path="data/labels_top1024.npy", mode='train', val_fold=0):
         """
         Args:
             pickle_path (str): Path to the main dictionary (ESM + metadata).
             t5_pickle_path (str): Path to the T5 embeddings dictionary.
+            vocab_path (str): Path to the GO term vocabulary.
             mode (str): 'train' or 'val'.
             val_fold (int): The fold ID to use for validation.
         """
@@ -20,6 +21,13 @@ class ProteinEnsembleDataset(Dataset):
         print(f"📦 Loading T5 embeddings from {t5_pickle_path}...")
         with open(t5_pickle_path, "rb") as f:
             self.t5_dict = pickle.load(f)
+            
+        # Load Vocabulary
+        self.term_to_idx = {}
+        if os.path.exists(vocab_path):
+            vocab = np.load(vocab_path)
+            self.term_to_idx = {term: i for i, term in enumerate(vocab)}
+            print(f"📖 Loaded vocabulary with {len(self.term_to_idx)} terms")
             
         # Get list of all IDs
         all_ids = list(self.data_dict.keys())
@@ -87,29 +95,35 @@ class ProteinEnsembleDataset(Dataset):
         # 3. Label
         raw_label = item['labels']
         
-        # Handle sparse/dict labels
+        label_vec = np.zeros(1024, dtype=np.float32)
+
+        def process_label_item(lbl, d_label):
+            if isinstance(lbl, int):
+                if 0 <= lbl < 1024:
+                    d_label[lbl] = 1.0
+            elif isinstance(lbl, str):
+                if lbl in self.term_to_idx:
+                    d_label[self.term_to_idx[lbl]] = 1.0
+
+        # Handle various formats
         if isinstance(raw_label, dict):
-            label_vec = np.zeros(1024, dtype=np.float32)
             for k in raw_label:
-                if isinstance(k, int) and 0 <= k < 1024:
-                    label_vec[k] = 1.0
-            label = label_vec
+                process_label_item(k, label_vec)
         elif hasattr(raw_label, "toarray"):
-            label = raw_label.toarray().flatten()
+            label_vec = raw_label.toarray().flatten()[:1024]
         elif isinstance(raw_label, (list, np.ndarray, tuple)):
              # Check if it's a dense vector or a list of indices
             raw_label_arr = np.array(raw_label)
-            if raw_label_arr.ndim == 1 and len(raw_label_arr) < 1024:
-                 # Likely a list of indices
-                 label_vec = np.zeros(1024, dtype=np.float32)
-                 for idx in raw_label_arr:
-                     if int(idx) < 1024:
-                         label_vec[int(idx)] = 1.0
-                 label = label_vec
+            if np.issubdtype(raw_label_arr.dtype, np.number) and raw_label_arr.shape == (1024,):
+                 label_vec = raw_label_arr
             else:
-                 label = raw_label
+                 # List of indices or strings
+                 for val in raw_label:
+                     process_label_item(val, label_vec)
         else:
-            label = raw_label
+            process_label_item(raw_label, label_vec)
+            
+        label = label_vec
         
         return {
             "features": torch.tensor(combined_features, dtype=torch.float32),

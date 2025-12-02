@@ -12,27 +12,57 @@ CONFIG = {
     "pickle_path": "data/protein_data.pkl",
     "t5_pickle_path": "data/t5_data.pkl",
     "output_prior_path": "data/class_priors.npy",
-    "vocab_path": "data/labels_top1024.npy", # Added vocab path
+    "vocab_path": "data/labels_top1024.npy", 
     "num_classes": 1024,
     "subsample_size": 10000 
 }
 
+def build_vocab_from_data(data_dict, n_classes):
+    print("⚠️ Vocabulary not found. Building from training data...")
+    from collections import Counter
+    counts = Counter()
+    
+    print("📊 Scanning data for top GO terms...")
+    for pid in tqdm(data_dict):
+        item = data_dict[pid]
+        raw_label = item['labels']
+        
+        # Extract terms
+        terms = []
+        if isinstance(raw_label, dict):
+            for val in raw_label.values():
+                if isinstance(val, list): terms.extend(val)
+                elif isinstance(val, str): terms.append(val)
+        elif isinstance(raw_label, list):
+            terms = raw_label
+            
+        counts.update(terms)
+        
+    top_terms = [t for t, c in counts.most_common(n_classes)]
+    print(f"✔ Built vocabulary with {len(top_terms)} terms.")
+    
+    # Save it
+    np.save(CONFIG["vocab_path"], np.array(top_terms))
+    print(f"💾 Saved generated vocabulary to {CONFIG['vocab_path']}")
+    
+    return {term: i for i, term in enumerate(top_terms)}
+
 def load_data():
     print(f"📦 Loading data for prior estimation...")
-    
-    # Load Vocabulary if available
+
+    with open(CONFIG["pickle_path"], "rb") as f:
+        data_dict = pickle.load(f)
+
+    # Load or Build Vocabulary
     term_to_idx = {}
     if os.path.exists(CONFIG["vocab_path"]):
         vocab = np.load(CONFIG["vocab_path"])
         term_to_idx = {term: i for i, term in enumerate(vocab)}
         print(f"📖 Loaded vocabulary with {len(term_to_idx)} terms")
     else:
-        print("⚠️ Warning: No vocabulary found at data/labels_top1024.npy. Assuming labels are already indices.")
+        # Auto-generate if missing
+        term_to_idx = build_vocab_from_data(data_dict, CONFIG["num_classes"])
 
-    with open(CONFIG["pickle_path"], "rb") as f:
-        data_dict = pickle.load(f)
-    
-    # We need features (X) and labels (Y)
     ids = list(data_dict.keys())
     
     # Optional: Subsample for speed
@@ -48,38 +78,23 @@ def load_data():
         X.append(item['embedding'])
         
         raw_label = item['labels']
-        
-        # DEBUG: Print first label structure
-        if i == 0:
-            print(f"\n🔍 DEBUG: First raw_label type: {type(raw_label)}")
-            print(f"🔍 DEBUG: First raw_label content: {raw_label}")
-        
         dense_label = np.zeros(CONFIG["num_classes"], dtype=np.float32)
 
-        # Helper to process a single label item (int or string)
-        def process_label_item(lbl, d_label):
-            if isinstance(lbl, int):
-                if 0 <= lbl < CONFIG["num_classes"]:
-                    d_label[lbl] = 1.0
-            elif isinstance(lbl, str):
-                if lbl in term_to_idx:
-                    d_label[term_to_idx[lbl]] = 1.0
-
-        # Handle various formats
+        # Extract all GO terms from nested structure
+        current_terms = []
         if isinstance(raw_label, dict):
-            for key in raw_label:
-                process_label_item(key, dense_label)
-        elif hasattr(raw_label, "toarray"): # Scipy sparse matrix
-             dense_label = raw_label.toarray().flatten()[:CONFIG["num_classes"]]
-        elif isinstance(raw_label, (list, np.ndarray, tuple)):
-            raw_label_arr = np.array(raw_label)
-            if np.issubdtype(raw_label_arr.dtype, np.number) and raw_label_arr.shape == (CONFIG["num_classes"],):
-                 dense_label = raw_label_arr
-            else:
-                 for val in raw_label:
-                     process_label_item(val, dense_label)
-        else:
-            process_label_item(raw_label, dense_label)
+            for val in raw_label.values():
+                if isinstance(val, list): current_terms.extend(val)
+                elif isinstance(val, str): current_terms.append(val)
+        elif isinstance(raw_label, list):
+            current_terms = raw_label
+        elif isinstance(raw_label, str):
+             current_terms = [raw_label]
+
+        # Map to indices
+        for term in current_terms:
+            if term in term_to_idx:
+                dense_label[term_to_idx[term]] = 1.0
             
         Y.append(dense_label)
           

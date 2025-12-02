@@ -97,32 +97,32 @@ class ProteinEnsembleDataset(Dataset):
         
         label_vec = np.zeros(1024, dtype=np.float32)
 
-        def process_label_item(lbl, d_label):
-            if isinstance(lbl, int):
-                if 0 <= lbl < 1024:
-                    d_label[lbl] = 1.0
-            elif isinstance(lbl, str):
-                if lbl in self.term_to_idx:
-                    d_label[self.term_to_idx[lbl]] = 1.0
-
-        # Handle various formats
+        # Extract all GO terms from nested structure (dict of lists)
+        current_terms = []
         if isinstance(raw_label, dict):
-            for k in raw_label:
-                process_label_item(k, label_vec)
-        elif hasattr(raw_label, "toarray"):
+            for val in raw_label.values():
+                if isinstance(val, list): current_terms.extend(val)
+                elif isinstance(val, str): current_terms.append(val)
+        elif isinstance(raw_label, list):
+            current_terms = raw_label
+        elif isinstance(raw_label, str):
+             current_terms = [raw_label]
+        
+        # Map to indices using loaded vocabulary
+        for term in current_terms:
+            if term in self.term_to_idx:
+                label_vec[self.term_to_idx[term]] = 1.0
+            # If term is an integer (legacy), handle it
+            elif isinstance(term, int) and 0 <= term < 1024:
+                 label_vec[term] = 1.0
+                 
+        # Fallback for dense arrays or sparse matrices
+        if hasattr(raw_label, "toarray"):
             label_vec = raw_label.toarray().flatten()[:1024]
-        elif isinstance(raw_label, (list, np.ndarray, tuple)):
-             # Check if it's a dense vector or a list of indices
-            raw_label_arr = np.array(raw_label)
-            if np.issubdtype(raw_label_arr.dtype, np.number) and raw_label_arr.shape == (1024,):
-                 label_vec = raw_label_arr
-            else:
-                 # List of indices or strings
-                 for val in raw_label:
-                     process_label_item(val, label_vec)
-        else:
-            process_label_item(raw_label, label_vec)
-            
+        elif isinstance(raw_label, np.ndarray):
+            if raw_label.shape == (1024,):
+                 label_vec = raw_label
+
         label = label_vec
         
         return {

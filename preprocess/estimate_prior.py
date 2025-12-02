@@ -1,8 +1,10 @@
 import numpy as np
 import pickle
 import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
 from tqdm import tqdm
-from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 
 # ==========================================
@@ -14,7 +16,10 @@ CONFIG = {
     "output_prior_path": "data/class_priors.npy",
     "vocab_path": "data/labels_top1024.npy", 
     "num_classes": 1024,
-    "subsample_size": 10000 
+    "subsample_size": 20000, # Increased subsample since GPU is fast
+    "batch_size": 2048,
+    "epochs": 100,
+    "device": "cuda" if torch.cuda.is_available() else "cpu"
 }
 
 def build_vocab_from_data(data_dict, n_classes):
@@ -65,7 +70,7 @@ def load_data():
 
     ids = list(data_dict.keys())
     
-    # Optional: Subsample for speed
+    # Optional: Subsample for speed (but GPU handles large data well)
     if len(ids) > CONFIG["subsample_size"]:
         np.random.seed(42)
         ids = np.random.choice(ids, CONFIG["subsample_size"], replace=False)
@@ -100,95 +105,131 @@ def load_data():
           
     # Ensure X and Y are proper 2D arrays
     X = np.array(X, dtype=np.float32)
-    
-    # Normalize X (StandardScaler style) for better convergence
-    mean = X.mean(axis=0)
-    std = X.std(axis=0) + 1e-6 # Avoid div by zero
-    X = (X - mean) / std
-    
-    # Debug: Check if we have any positives
     Y = np.array(Y, dtype=np.float32)
+    
+    # Stack if needed
+    if Y.ndim == 1 and len(Y) > 0:
+         try: Y = np.vstack(Y)
+         except: pass
+
+    # Feature Scaling (Simple standardization)
+    mean = X.mean(axis=0)
+    std = X.std(axis=0) + 1e-6
+    X = (X - mean) / std
+
     print(f"DEBUG: Y shape: {Y.shape}, Y sum: {Y.sum()}")
     
-    if Y.sum() == 0:
-        print("❌ WARNING: Target matrix Y is still all zeros!")
-        if len(ids) > 0:
-             print(f"Sample raw label: {data_dict[ids[0]]['labels']}")
-
-    # Y might be a list of arrays, so we stack them ensuring they are 2D
-    if Y.ndim == 1:
-        try:
-            Y = np.vstack(Y)
-        except:
-            print(f"❌ Error stacking Y. Shape before stack: {Y.shape}")
-            raise
-
     return X, Y
 
-def estimate_priors(X, Y_multi):
+def estimate_priors_gpu(X, Y):
     """
-    Estimates prior pi_p for each class using Elkan-Noto method.
+    Estimates priors using a GPU-accelerated PyTorch model.
+    Trains one multi-label classifier to predict P(s=1|x) for all classes simultaneously.
     """
-    num_classes = Y_multi.shape[1]
+    device = CONFIG["device"]
+    print(f"🚀 Using device: {device}")
+    
+    # Convert to Tensors
+    X_tensor = torch.tensor(X, dtype=torch.float32).to(device)
+    Y_tensor = torch.tensor(Y, dtype=torch.float32).to(device)
+    
+    # Split Train/Calib
+    # We use a hold-out set (Calibration) to estimate 'c'
+    n_samples = len(X)
+    n_train = int(0.8 * n_samples)
+    
+    # Random shuffle indices
+    indices = torch.randperm(n_samples)
+    train_idx = indices[:n_train]
+    calib_idx = indices[n_train:]
+    
+    X_train, Y_train = X_tensor[train_idx], Y_tensor[train_idx]
+    X_calib, Y_calib = X_tensor[calib_idx], Y_tensor[calib_idx]
+    
+    input_dim = X.shape[1]
+    num_classes = Y.shape[1]
+    
+    # Simple Logistic Regression Model (Linear + Sigmoid)
+    model = nn.Linear(input_dim, num_classes).to(device)
+    
+    # Optimizer
+    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    
+    # Weighted Loss to handle imbalance roughly
+    # P(s=1) is usually low, so we can weight positives higher to help convergence
+    # But for probability estimation, unweighted is often better calibrated.
+    # Let's stick to standard BCE for probabilistic interpretation.
+    criterion = nn.BCEWithLogitsLoss()
+    
+    print("🏋️ Training estimator model on GPU...")
+    batch_size = CONFIG["batch_size"]
+    
+    for epoch in range(CONFIG["epochs"]):
+        model.train()
+        permutation = torch.randperm(n_train)
+        
+        epoch_loss = 0
+        for i in range(0, n_train, batch_size):
+            indices = permutation[i:i+batch_size]
+            batch_x, batch_y = X_train[indices], Y_train[indices]
+            
+            optimizer.zero_grad()
+            outputs = model(batch_x)
+            loss = criterion(outputs, batch_y)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+            
+        if (epoch+1) % 20 == 0:
+            print(f"Epoch {epoch+1}/{CONFIG['epochs']} | Loss: {epoch_loss:.4f}")
+
+    # ---------------------------------------------------------
+    # Estimate 'c' and Priors
+    # ---------------------------------------------------------
+    print("📊 Estimating priors from calibration set...")
+    model.eval()
+    with torch.no_grad():
+        logits = model(X_calib)
+        probs = torch.sigmoid(logits) # P(s=1|x)
+    
+    # Move to CPU for numpy ops
+    probs = probs.cpu().numpy()
+    Y_calib = Y_calib.cpu().numpy()
+    
     priors = np.zeros(num_classes)
     
-    print(f"📊 Estimating priors for {num_classes} classes using Elkan-Noto...")
-    
-    # Iterate over each class individually
-    for c in tqdm(range(num_classes)):
-        y_c = Y_multi[:, c] # Labels for class c (1=Positive, 0=Unlabeled)
+    for k in range(num_classes):
+        # Positives in calibration set
+        pos_mask = (Y_calib[:, k] == 1)
         
-        # If no positives, prior is 0
-        if y_c.sum() == 0:
-            priors[c] = 0.0
+        # P(s=1) estimated from dataset frequency
+        # Use the whole dataset frequency for stability
+        p_s1 = Y[:, k].mean()
+        
+        if pos_mask.sum() < 5:
+            # Too few positives to estimate c reliably
+            # Assume c=1 (labeling is perfect) -> prior = p(s=1)
+            priors[k] = p_s1
             continue
             
-        # Skip extremely rare classes (unstable estimation)
-        if y_c.sum() < 5:
-             priors[c] = y_c.mean()
-             continue
-            
-        # Split into a hold-out set for estimating 'c'
-        # We train on a subset, estimate on the hold-out P set
-        X_train, X_holdout, y_train, y_holdout = train_test_split(X, y_c, test_size=0.2, stratify=y_c, random_state=42)
+        # c = Average prediction on positives
+        # c = P(s=1 | y=1)
+        probs_pos = probs[pos_mask, k]
+        c_hat = np.mean(probs_pos)
         
-        # Train classifier g(x) to predict s=1 vs s=0
-        # Logistic Regression is fast and works well for this
-        clf = LogisticRegression(solver='lbfgs', max_iter=1000, class_weight='balanced', n_jobs=1)
-        clf.fit(X_train, y_train)
+        # Clip c
+        c_hat = max(c_hat, 0.01) 
         
-        # Estimate c = P(s=1 | y=1)
-        # We look at the hold-out set where we KNOW labels are 1
-        positives_holdout = X_holdout[y_holdout == 1]
-        
-        if len(positives_holdout) == 0:
-             # Fallback if split resulted in no positives (rare)
-             priors[c] = y_c.mean() # Naive estimate
-             continue
-
-        # Predict probabilities P(s=1|x) for true positives
-        preds_pos = clf.predict_proba(positives_holdout)[:, 1]
-        
-        # c is the average probability assigned to true positives
-        c_hat = np.mean(preds_pos)
-        
-        # Sanity clip
-        c_hat = max(c_hat, 1e-5)
-        
-        # Calculate pi_p = P(s=1) / c
-        # P(s=1) is just the fraction of labeled examples in dataset
-        p_s1 = y_c.mean()
-        
+        # pi_p = P(s=1) / c
         pi_p = p_s1 / c_hat
         
-        # Clip to [0, 1] range
-        priors[c] = np.clip(pi_p, 0.0, 1.0)
+        priors[k] = np.clip(pi_p, 0.0, 1.0)
         
     return priors
 
 if __name__ == "__main__":
     X, Y = load_data()
-    priors = estimate_priors(X, Y)
+    priors = estimate_priors_gpu(X, Y)
     
     print(f"💾 Saving priors to {CONFIG['output_prior_path']}")
     np.save(CONFIG['output_prior_path'], priors)

@@ -5,6 +5,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
 import os
+import pickle
+import random
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
@@ -164,8 +166,28 @@ class ProteinTrainer:
         val_fold = config.get('val_fold', 0)
         
         print("📦 Initializing Datasets...")
-        self.train_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, vocab_path, mode='train', val_fold=val_fold)
-        self.val_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, vocab_path, mode='val', val_fold=val_fold)
+        
+        if val_fold == -1:
+            print("🔀 Random Split Mode (val_fold = -1)")
+            # Load data to get IDs
+            with open(pickle_path, "rb") as f:
+                data = pickle.load(f)
+            all_ids = list(data.keys())
+            
+            # Deterministic shuffle
+            random.seed(42)
+            random.shuffle(all_ids)
+            
+            # 80/20 Split
+            split_idx = int(len(all_ids) * 0.8)
+            train_ids = all_ids[:split_idx]
+            val_ids = all_ids[split_idx:]
+            
+            self.train_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, vocab_path, mode='train', val_fold=val_fold, specific_ids=train_ids)
+            self.val_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, vocab_path, mode='val', val_fold=val_fold, specific_ids=val_ids)
+        else:
+            self.train_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, vocab_path, mode='train', val_fold=val_fold)
+            self.val_dataset = ProteinEnsembleDataset(pickle_path, t5_pickle_path, vocab_path, mode='val', val_fold=val_fold)
         
         self.train_loader = DataLoader(self.train_dataset, batch_size=config['batch_size'], shuffle=True, num_workers=4, pin_memory=True)
         self.val_loader = DataLoader(self.val_dataset, batch_size=config['batch_size'], shuffle=False, num_workers=4, pin_memory=True)
@@ -197,12 +219,14 @@ class ProteinTrainer:
             self.optimizer, mode='min', factor=0.1, patience=3
         )
 
-        self.history = {'train_loss': [], 'val_loss': [], 'val_f1': []}
+        self.history = {'train_loss': [], 'val_loss': [], 'train_f1': [], 'val_f1': []}
         self.best_val_loss = float('inf')
 
     def train_epoch(self, epoch_idx):
         self.model.train()
         running_loss = 0.0
+        all_preds = []
+        all_targets = []
         
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch_idx+1}", leave=False)
         
@@ -218,9 +242,21 @@ class ProteinTrainer:
             self.optimizer.step()
             
             running_loss += loss.item()
+            
+            # Track metrics (optional, might slow down training slightly)
+            with torch.no_grad():
+                preds = (torch.sigmoid(outputs) > 0.5).float()
+                all_preds.append(preds.cpu().numpy())
+                all_targets.append(targets.cpu().numpy())
+
             pbar.set_postfix({'batch_loss': f"{loss.item():.4f}"})
             
-        return running_loss / len(self.train_loader)
+        # Calculate Train F1
+        all_preds = np.vstack(all_preds)
+        all_targets = np.vstack(all_targets)
+        train_f1 = f1_score(all_targets, all_preds, average='micro')
+            
+        return running_loss / len(self.train_loader), train_f1
 
     def validate(self):
         self.model.eval()
@@ -255,15 +291,18 @@ class ProteinTrainer:
 
             ax1.set_xlabel('Epoch')
             ax1.set_ylabel('nnPU Loss', color='tab:blue')
-            ax1.plot(self.history['train_loss'], label='Train Loss', marker='o', color='tab:blue')
+            ax1.plot(self.history['train_loss'], label='Train Loss', marker='o', color='tab:blue', alpha=0.6)
             ax1.plot(self.history['val_loss'], label='Val Loss', marker='x', color='tab:cyan')
             ax1.tick_params(axis='y', labelcolor='tab:blue')
             ax1.grid(True)
+            ax1.legend(loc='upper left')
 
             ax2 = ax1.twinx()
             ax2.set_ylabel('Micro F1', color='tab:orange')
+            ax2.plot(self.history['train_f1'], label='Train F1', marker='.', color='tab:brown', alpha=0.6)
             ax2.plot(self.history['val_f1'], label='Val F1', marker='s', color='tab:orange')
             ax2.tick_params(axis='y', labelcolor='tab:orange')
+            ax2.legend(loc='upper right')
 
             plt.title(f"nnPU Training (Fold {self.config.get('val_fold',0)})")
             fig.tight_layout()
@@ -275,8 +314,9 @@ class ProteinTrainer:
         print(f"🚀 Starting Run | Hidden: {self.config['hidden_dim']} | LR: {self.config['learning_rate']}")
         
         for epoch in range(self.config['epochs']):
-            t_loss = self.train_epoch(epoch)
+            t_loss, t_f1 = self.train_epoch(epoch)
             self.history['train_loss'].append(t_loss)
+            self.history['train_f1'].append(t_f1)
             
             v_loss, v_f1 = self.validate()
             self.history['val_loss'].append(v_loss)
@@ -290,7 +330,7 @@ class ProteinTrainer:
                 torch.save(self.model.state_dict(), save_name)
 
             self.plot_live()
-            print(f"Epoch {epoch+1}/{self.config['epochs']} | Train: {t_loss:.4f} | Val Loss: {v_loss:.4f} | Val F1: {v_f1:.4f}")
+            print(f"Epoch {epoch+1}/{self.config['epochs']} | Train Loss: {t_loss:.4f} F1: {t_f1:.4f} | Val Loss: {v_loss:.4f} F1: {v_f1:.4f}")
 
         return self.best_val_loss
 

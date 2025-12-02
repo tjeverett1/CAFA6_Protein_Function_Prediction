@@ -5,7 +5,7 @@ import pickle
 import os
 
 class ProteinEnsembleDataset(Dataset):
-    def __init__(self, pickle_path, t5_pickle_path, vocab_path="data/labels_top1024.npy", mode='train', val_fold=0):
+    def __init__(self, pickle_path, t5_pickle_path, vocab_path="data/labels_top1024.npy", mode='train', val_fold=0, specific_ids=None):
         """
         Args:
             pickle_path (str): Path to the main dictionary (ESM + metadata).
@@ -13,6 +13,7 @@ class ProteinEnsembleDataset(Dataset):
             vocab_path (str): Path to the GO term vocabulary.
             mode (str): 'train' or 'val'.
             val_fold (int): The fold ID to use for validation.
+            specific_ids (list, optional): If provided, use these IDs directly (ignoring folds).
         """
         print(f"📦 Loading main data from {pickle_path}...")
         with open(pickle_path, "rb") as f:
@@ -38,28 +39,35 @@ class ProteinEnsembleDataset(Dataset):
         self.num_taxonomies = len(self.tax_ids)
         print(f"✔ Found {self.num_taxonomies} unique taxonomies.")
 
-        # 2. Filter by Fold
+        # 2. Filter Data
         self.filtered_ids = []
         
-        for pid in all_ids:
-            item = self.data_dict[pid]
-            item_fold = item.get('fold') 
-            
-            # Robust comparison (handle string vs int mismatch)
-            try:
-                item_fold = int(item_fold)
-                val_fold = int(val_fold)
-            except (ValueError, TypeError):
-                pass # Keep original types if conversion fails
+        if specific_ids is not None:
+            # Case A: Specific IDs provided (Random Split mode from Trainer)
+            self.filtered_ids = specific_ids
+            print(f"✔ {mode.upper()} set: {len(self.filtered_ids)} samples (Random Split)")
+        else:
+            # Case B: Fold-based Split
+            unique_folds = set()
+            for pid in all_ids:
+                item = self.data_dict[pid]
+                item_fold = item.get('fold') 
+                unique_folds.add(item_fold)
+                
+                try:
+                    item_fold = int(item_fold)
+                    val_fold = int(val_fold)
+                except (ValueError, TypeError):
+                    pass 
 
-            if mode == 'train':
-                if item_fold != val_fold:
-                    self.filtered_ids.append(pid)
-            elif mode == 'val':
-                if item_fold == val_fold:
-                    self.filtered_ids.append(pid)
-        
-        print(f"✔ {mode.upper()} set: {len(self.filtered_ids)} samples (Val Fold: {val_fold})")
+                if mode == 'train':
+                    if item_fold != val_fold:
+                        self.filtered_ids.append(pid)
+                elif mode == 'val':
+                    if item_fold == val_fold:
+                        self.filtered_ids.append(pid)
+            
+            print(f"✔ {mode.upper()} set: {len(self.filtered_ids)} samples (Val Fold: {val_fold}) | Folds present: {sorted(list(unique_folds))}")
 
     def __len__(self):
         return len(self.filtered_ids)

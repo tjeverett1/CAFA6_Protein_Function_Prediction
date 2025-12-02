@@ -127,6 +127,6 @@ class ProteinEnsembleDataset(Dataset):
         
         return {
             "features": torch.tensor(combined_features, dtype=torch.float32),
-            "taxonomy_idx": torch.tensor(tax_idx, dtype=torch.long),
+            "taxonomy": torch.tensor(tax_idx, dtype=torch.long),
             "label": torch.tensor(label, dtype=torch.float32)
         }

@@ -231,7 +231,7 @@ class ProteinTrainer:
         with torch.no_grad():
             for batch in self.val_loader:
                 features = batch['features'].to(self.device)
-                tax_idx = batch['taxonomy_idx'].to(self.device)
+                tax_idx = batch['taxonomy'].to(self.device)
                 targets = batch['label'].to(self.device)
                 
                 outputs = self.model(features, tax_idx)

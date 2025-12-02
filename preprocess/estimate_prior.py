@@ -101,6 +101,11 @@ def load_data():
     # Ensure X and Y are proper 2D arrays
     X = np.array(X, dtype=np.float32)
     
+    # Normalize X (StandardScaler style) for better convergence
+    mean = X.mean(axis=0)
+    std = X.std(axis=0) + 1e-6 # Avoid div by zero
+    X = (X - mean) / std
+    
     # Debug: Check if we have any positives
     Y = np.array(Y, dtype=np.float32)
     print(f"DEBUG: Y shape: {Y.shape}, Y sum: {Y.sum()}")
@@ -138,13 +143,18 @@ def estimate_priors(X, Y_multi):
             priors[c] = 0.0
             continue
             
+        # Skip extremely rare classes (unstable estimation)
+        if y_c.sum() < 5:
+             priors[c] = y_c.mean()
+             continue
+            
         # Split into a hold-out set for estimating 'c'
         # We train on a subset, estimate on the hold-out P set
         X_train, X_holdout, y_train, y_holdout = train_test_split(X, y_c, test_size=0.2, stratify=y_c, random_state=42)
         
         # Train classifier g(x) to predict s=1 vs s=0
         # Logistic Regression is fast and works well for this
-        clf = LogisticRegression(solver='lbfgs', max_iter=200, class_weight='balanced')
+        clf = LogisticRegression(solver='lbfgs', max_iter=1000, class_weight='balanced', n_jobs=1)
         clf.fit(X_train, y_train)
         
         # Estimate c = P(s=1 | y=1)

@@ -6,6 +6,8 @@ pandas
 esm
 Biopython
 h5py
+goatools
+kaggle
 
 # CUDA-enabled PyTorch (2.2.0, CUDA 12.1)
 --extra-index-url https://download.pytorch.org/whl/cu121
@@ -19,4 +21,3 @@ pytorch-lightning
 wandb
 
 typing-extensions
-e

@@ -59,7 +59,6 @@ kaggle_secrets.json
 # -------------------------
 data/
 datasets/
-embeddings/
 cafa-6-protein-function-prediction/
 *.csv
 *.tsv

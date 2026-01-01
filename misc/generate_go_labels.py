@@ -20,10 +20,10 @@ CONFIG = {
 
     # Your list of proteins corresponding to embeddings
     # (this should be the same ordering as your embeddings)
-    "train_ids_path": "train_ids.npy",
+    "train_ids_path": "cafa-6-protein-function-prediction/Train/train_ids.npy",
 
     # GO ontology
-    "obo_path": r"cafa-6-protein-function-prediction\Train\go-basic.obo",
+    "obo_path": r"cafa-6-protein-function-prediction/Train/go-basic.obo",
 
     # How many GO terms to use (top-N)
     "N_labels": 1024,
